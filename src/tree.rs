@@ -31,31 +31,32 @@ impl<T: Clone + Ord> UBTree<T> {
         set.sort();
 
         let mut current_children = &mut self.children;
-        let last_element = &set.last().unwrap();
+        let mut last_node: *mut Node<T> = std::ptr::null_mut();
 
         for element in &set {
             match current_children.binary_search_by(|n| n.element.cmp(&element)) {
                 Err(index) => {
                     // the element is not found in the children list. create new node and insert it at
                     // the proposed index.
-                    let mut node = Node::new(element.clone());
-                    if last_element == &element && node.end_of_path_set.is_none() {
-                        node.end_of_path_set = Some(set.clone());
-                    }
-
+                    let node = Node::new(element.clone());
                     current_children.insert(index, node);
+                    last_node = &mut current_children[index];
                     current_children = &mut current_children[index].children;
                 }
                 Ok(index) => {
                     // the element is found in the children list. move to the next level.
-                    let node = &mut current_children[index];
-                    if last_element == &element && node.end_of_path_set.is_none() {
-                        node.end_of_path_set = Some(set.clone());
-                    }
-
+                    last_node = &mut current_children[index];
                     current_children = &mut current_children[index].children;
                 }
             };
+        }
+
+        if !last_node.is_null() {
+            unsafe {
+                if (*last_node).end_of_path_set.is_none() {
+                    (*last_node).end_of_path_set = Some(set);
+                }
+            }
         }
     }
 
