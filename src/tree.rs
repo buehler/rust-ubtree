@@ -1,4 +1,4 @@
-use std::{fmt::Display, ops::Index};
+use std::fmt::Display;
 
 use crate::node::Node;
 
@@ -33,7 +33,7 @@ impl<T: Clone + Ord> UBTree<T> {
         let mut current_children = &mut self.children;
         let mut last_node: *mut Node<T> = std::ptr::null_mut();
 
-        for element in set {
+        for element in &set {
             match current_children.binary_search_by(|n| n.element.cmp(&element)) {
                 Err(index) => {
                     // the element is not found in the children list. create new node and insert it at
@@ -53,7 +53,9 @@ impl<T: Clone + Ord> UBTree<T> {
 
         if !last_node.is_null() {
             unsafe {
-                (*last_node).end_of_path = true;
+                if (*last_node).end_of_path_set.is_none() {
+                    (*last_node).end_of_path_set = Some(set);
+                }
             }
         }
     }
@@ -71,7 +73,7 @@ impl<T: Clone + Ord> UBTree<T> {
         for element in query {
             if let Ok(index) = current_children.binary_search_by(|n| n.element.cmp(&element)) {
                 let node = &current_children[index];
-                if node.end_of_path {
+                if node.end_of_path_set.is_some() {
                     return true;
                 }
 
@@ -82,7 +84,7 @@ impl<T: Clone + Ord> UBTree<T> {
         false
     }
 
-    pub fn subsets(&self, query: &[T]) -> Vec<Vec<T>> {
+    pub fn subsets(&self, query: &[T]) -> Vec<&[T]> {
         if query.is_empty() {
             return Vec::new();
         }
@@ -93,14 +95,12 @@ impl<T: Clone + Ord> UBTree<T> {
         query.sort();
 
         let mut current_children = &self.children;
-        let mut current_path = Vec::new();
 
         for element in query {
             if let Ok(index) = current_children.binary_search_by(|n| n.element.cmp(&element)) {
                 let node = &current_children[index];
-                current_path.push(node.element.clone());
-                if node.end_of_path {
-                    result.push(current_path.clone());
+                if let Some(set) = &node.end_of_path_set {
+                    result.push(set.as_slice());
                 }
 
                 current_children = &node.children;
@@ -110,45 +110,24 @@ impl<T: Clone + Ord> UBTree<T> {
         result
     }
 
-    pub fn supersets(&self, query: &[T]) -> Vec<Vec<T>> {
+    pub fn supersets(&self, query: &[T]) -> Vec<&[T]> {
         let mut query = query.to_vec();
         query.sort();
 
         let mut current_children = &self.children;
-        // defines whether at least one element was found in the query
-        // but if the query is empty, then all children are supersets.
-        let mut found = query.is_empty();
 
-        // Find the node that corresponds to the last element in the query.
-        // All children (recursively) of this node are supersets of the query (if they end of path).
-        for element in &query {
-            if let Ok(index) = current_children.binary_search_by(|n| n.element.cmp(element)) {
+        for element in query {
+            if let Ok(index) = current_children.binary_search_by(|n| n.element.cmp(&element)) {
                 let node = &current_children[index];
                 current_children = &node.children;
-                found = true;
             }
         }
 
-        if !found {
-            return Vec::new();
-        }
-
-        let mut result = Vec::new();
-        let mut node_stack = Vec::new();
-        node_stack.extend(current_children.iter().map(|c| (c, query.clone())));
-
-        while !node_stack.is_empty() {
-            let (node, mut path) = node_stack.pop().unwrap();
-            path.push(node.element.clone());
-
-            if node.end_of_path {
-                result.push(path.clone());
-            }
-
-            node_stack.extend(node.children.iter().map(|c| (c, path.clone())));
-        }
-
-        result
+        current_children
+            .iter()
+            .flat_map(|c| c.get_all_eop_sets())
+            .map(|s| s.as_slice())
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -177,14 +156,6 @@ impl<T: Clone + Ord + Display> Display for UBTree<T> {
         }
 
         Ok(())
-    }
-}
-
-impl<T: Clone + Ord> Index<usize> for UBTree<T> {
-    type Output = Node<T>;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.children[index]
     }
 }
 
@@ -218,21 +189,15 @@ mod tests {
     }
 
     #[test]
-    fn index_to_children() {
-        let tree = get_tree();
-        assert_eq!(*tree[0], 0);
-    }
-
-    #[test]
     fn insert_single_set() {
         let set = vec![1, 2, 3];
         let mut tree = UBTree::new();
         tree.insert(&set);
 
         assert_eq!(tree.len(), 1);
-        assert_eq!(tree[0].element, 1);
-        assert_eq!(tree[0][0].element, 2);
-        assert_eq!(tree[0][0][0].element, 3);
+        assert_eq!(tree.children[0].element, 1);
+        assert_eq!(tree.children[0][0].element, 2);
+        assert_eq!(tree.children[0][0][0].element, 3);
     }
 
     #[test]
@@ -245,14 +210,14 @@ mod tests {
         }
 
         assert_eq!(tree.len(), 2);
-        assert_eq!(tree[0].children.len(), 1);
-        assert_eq!(tree[0][0].children.len(), 2);
+        assert_eq!(tree.children[0].children.len(), 1);
+        assert_eq!(tree.children[0][0].children.len(), 2);
 
-        assert_eq!(tree[0][0][0][0].element, 3);
+        assert_eq!(tree.children[0][0][0][0].element, 3);
 
-        assert!(tree[0][0][0][0].end_of_path);
-        assert!(!tree[0][0].end_of_path);
-        assert!(tree[0][0][1].end_of_path);
+        assert!(tree.children[0][0][0][0].end_of_path_set.is_some());
+        assert!(!tree.children[0][0].end_of_path_set.is_some());
+        assert!(tree.children[0][0][1].end_of_path_set.is_some());
     }
 
     #[test]
@@ -272,7 +237,7 @@ mod tests {
 
     #[test]
     fn empty_subsets() {
-        assert_eq!(get_tree().subsets(&Vec::new()), Vec::<Vec<i32>>::new());
+        assert_eq!(get_tree().subsets(&Vec::new()), Vec::<&Vec<i32>>::new());
     }
 
     #[test]
@@ -280,8 +245,8 @@ mod tests {
         let tree = get_tree();
         let result = tree.subsets(&vec![0, 1, 2, 3]);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], vec![0, 1, 2]);
-        assert_eq!(result[1], vec![0, 1, 2, 3]);
+        assert_eq!(result[0], &vec![0, 1, 2]);
+        assert_eq!(result[1], &vec![0, 1, 2, 3]);
     }
 
     #[test]
@@ -306,6 +271,6 @@ mod tests {
 
         let result = tree.supersets(&vec![2]);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], vec![2, 3]);
+        assert_eq!(result[0], &vec![2, 3]);
     }
 }
