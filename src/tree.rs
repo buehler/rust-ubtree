@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Index};
 
 use crate::node::Node;
 
@@ -115,19 +115,39 @@ impl<T: Clone + Ord> UBTree<T> {
         query.sort();
 
         let mut current_children = &self.children;
+        // defines whether at least one element was found in the query
+        // but if the query is empty, then all children are supersets.
+        let mut found = query.is_empty();
 
-        for element in query {
-            if let Ok(index) = current_children.binary_search_by(|n| n.element.cmp(&element)) {
+        // Find the node that corresponds to the last element in the query.
+        // All children (recursively) of this node are supersets of the query (if they end of path).
+        for element in &query {
+            if let Ok(index) = current_children.binary_search_by(|n| n.element.cmp(element)) {
                 let node = &current_children[index];
                 current_children = &node.children;
+                found = true;
             }
         }
 
-        current_children
-            .iter()
-            .flat_map(|c| c.get_all_eop_sets())
-            .map(|s| s.as_slice())
-            .collect()
+        if !found {
+            return Vec::new();
+        }
+
+        let mut result = Vec::new();
+        let mut node_stack = Vec::new();
+        node_stack.extend(current_children);
+
+        while !node_stack.is_empty() {
+            let node = node_stack.pop().unwrap();
+
+            if let Some(path_set) = &node.end_of_path_set {
+                result.push(path_set.as_slice());
+            }
+
+            node_stack.extend(&node.children);
+        }
+
+        result
     }
 
     pub fn len(&self) -> usize {
@@ -156,6 +176,14 @@ impl<T: Clone + Ord + Display> Display for UBTree<T> {
         }
 
         Ok(())
+    }
+}
+
+impl<T: Clone + Ord> Index<usize> for UBTree<T> {
+    type Output = Node<T>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.children[index]
     }
 }
 
@@ -189,15 +217,21 @@ mod tests {
     }
 
     #[test]
+    fn index_to_children() {
+        let tree = get_tree();
+        assert_eq!(*tree[0], 0);
+    }
+
+    #[test]
     fn insert_single_set() {
         let set = vec![1, 2, 3];
         let mut tree = UBTree::new();
         tree.insert(&set);
 
         assert_eq!(tree.len(), 1);
-        assert_eq!(tree.children[0].element, 1);
-        assert_eq!(tree.children[0][0].element, 2);
-        assert_eq!(tree.children[0][0][0].element, 3);
+        assert_eq!(tree[0].element, 1);
+        assert_eq!(tree[0][0].element, 2);
+        assert_eq!(tree[0][0][0].element, 3);
     }
 
     #[test]
@@ -210,14 +244,14 @@ mod tests {
         }
 
         assert_eq!(tree.len(), 2);
-        assert_eq!(tree.children[0].children.len(), 1);
-        assert_eq!(tree.children[0][0].children.len(), 2);
+        assert_eq!(tree[0].children.len(), 1);
+        assert_eq!(tree[0][0].children.len(), 2);
 
-        assert_eq!(tree.children[0][0][0][0].element, 3);
+        assert_eq!(tree[0][0][0][0].element, 3);
 
-        assert!(tree.children[0][0][0][0].end_of_path_set.is_some());
-        assert!(!tree.children[0][0].end_of_path_set.is_some());
-        assert!(tree.children[0][0][1].end_of_path_set.is_some());
+        assert!(tree[0][0][0][0].end_of_path_set.is_some());
+        assert!(!tree[0][0].end_of_path_set.is_some());
+        assert!(tree[0][0][1].end_of_path_set.is_some());
     }
 
     #[test]
@@ -261,6 +295,13 @@ mod tests {
         let tree = get_tree();
         let result = tree.supersets(&vec![]);
         assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn non_matching_supersets() {
+        let tree = get_tree();
+        let result = tree.supersets(&vec![99, 1337]);
+        assert_eq!(result.len(), 0);
     }
 
     #[test]
