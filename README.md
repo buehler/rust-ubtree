@@ -1,10 +1,10 @@
 # Rust UBTree
 
-This is an implementation of the UBTree (Unlimited Branching Tree) in Rust. It is based on the paper [A New Method to Index and Query Sets](https://www.ijcai.org/Proceedings/99-1/Papers/067.pdf) by Jorg HOffmann and Jana Koehler from the University in Freiburg.
+This is an implementation of the UBTree (Unlimited Branching Tree) in Rust. It is based on the paper [A New Method to Index and Query Sets](https://www.ijcai.org/Proceedings/99-1/Papers/067.pdf) by Jorg Hoffmann and Jana Koehler from the University in Freiburg.
 
 I implemented this structure to understand the underlying data structure that powers [KLEE](https://klee-se.org/) (a symbolic execution engine) and to - somewhat - benchmark the datastructure. The structure creates very good results without any big optimization (and used on `i32` or `u32` types).
 
-The data stucture supports the purposed operations in the paper:
+The data stucture supports the proposed operations in the paper:
 
 - `insert`; insert a new set into the tree
 - `exists` (known in the paper as `lookup_first`); check if any set exists in the tree, such that the set is a subset of the query; meaning $`\exists s \in S \text{ in } T \text{ with } s \subseteq q`$
